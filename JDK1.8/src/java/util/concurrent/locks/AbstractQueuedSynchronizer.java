@@ -379,20 +379,26 @@ public abstract class AbstractQueuedSynchronizer
      */
     static final class Node {
         /** Marker to indicate a node is waiting in shared mode */
-        static final Node SHARED = new Node();
+        static final Node SHARED = new Node(); //共享锁的标记
         /** Marker to indicate a node is waiting in exclusive mode */
-        static final Node EXCLUSIVE = null;
+        static final Node EXCLUSIVE = null; //互斥锁的标记
 
         /** waitStatus value to indicate thread has cancelled */
+        //线程被中断或者操作超时，线程操作被取消
         static final int CANCELLED =  1;
         /** waitStatus value to indicate successor's thread needs unparking */
+        //后一个节点（线程操作）需要唤醒，说明后一个线程已经调用了park阻塞，
+        // 当前节点执行park操作时，需要将pre节点的状态修改为signal（前提是pre不为cancelled状态， ws<=0）
         static final int SIGNAL    = -1;
         /** waitStatus value to indicate thread is waiting on condition */
+        //当前节点被condition条件阻塞
+        // 阻塞在该状态的node不会出现在同步队列，阻塞节点要么在同步队列，要么在condition队列
         static final int CONDITION = -2;
         /**
          * waitStatus value to indicate the next acquireShared should
          * unconditionally propagate
          */
+        //共享锁，获取锁需要继续传播
         static final int PROPAGATE = -3;
 
         /**
