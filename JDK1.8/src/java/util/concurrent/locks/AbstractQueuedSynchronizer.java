@@ -398,7 +398,7 @@ public abstract class AbstractQueuedSynchronizer
          * waitStatus value to indicate the next acquireShared should
          * unconditionally propagate
          */
-        //共享锁，获取锁需要继续传播
+        //共享锁获取需要往后传播，保证在资源充足的情况下，能够唤醒足够多的节点
         static final int PROPAGATE = -3;
 
         /**
@@ -435,6 +435,7 @@ public abstract class AbstractQueuedSynchronizer
          * CONDITION for condition nodes.  It is modified using CAS
          * (or when possible, unconditional volatile writes).
          */
+        //等待状态 0， -1， -2， -3， 1
         volatile int waitStatus;
 
         /**
@@ -481,6 +482,8 @@ public abstract class AbstractQueuedSynchronizer
          * we save a field by using special value to indicate shared
          * mode.
          */
+        //condition队列，或者是SHARED，值为SHARED表明是共享锁，值不为SHARED则为互斥锁
+        // 共享锁没有condition队列，注意这个字段没有volatile修饰
         Node nextWaiter;
 
         /**
@@ -586,6 +589,8 @@ public abstract class AbstractQueuedSynchronizer
      * @param node the node to insert
      * @return node's predecessor
      */
+    //尾部插入存在并发情况，所以使用CAS设值
+    // 如果队列为空，则插入一个无效头节点， 由于是插入第一个节点，所以设头这里也要CAS设值
     private Node enq(final Node node) {
         for (;;) {
             Node t = tail;
@@ -630,6 +635,8 @@ public abstract class AbstractQueuedSynchronizer
      *
      * @param node the node
      */
+    //非第一次设值的话，设头并不存在并发场景，可以直接设值
+    // 由于头无效，所以将头中的信息置空
     private void setHead(Node node) {
         head = node;
         node.thread = null;
@@ -658,8 +665,11 @@ public abstract class AbstractQueuedSynchronizer
          * non-cancelled successor.
          */
         Node s = node.next;
+        //后继节点状态无效
         if (s == null || s.waitStatus > 0) {
             s = null;
+            //如果后继节点无效，那么从尾部往前找到一个符合条件的节点，并唤醒
+            //唤醒的条件是ws<=0
             for (Node t = tail; t != null && t != node; t = t.prev)
                 if (t.waitStatus <= 0)
                     s = t;
@@ -673,6 +683,7 @@ public abstract class AbstractQueuedSynchronizer
      * propagation. (Note: For exclusive mode, release just amounts
      * to calling unparkSuccessor of head if it needs signal.)
      */
+    //共享模式的release操作，需要传播该操作，与互斥模式不同
     private void doReleaseShared() {
         /*
          * Ensure that a release propagates, even if there are other
@@ -687,17 +698,21 @@ public abstract class AbstractQueuedSynchronizer
          */
         for (;;) {
             Node h = head;
+            //队列中有节点
             if (h != null && h != tail) {
                 int ws = h.waitStatus;
+                //signal代表还没有唤醒后继节点，应该唤醒
                 if (ws == Node.SIGNAL) {
                     if (!compareAndSetWaitStatus(h, Node.SIGNAL, 0))
                         continue;            // loop to recheck cases
                     unparkSuccessor(h);
                 }
+                //如果ws==0，说明该节点已经唤醒了后继节点了，===》propagate
                 else if (ws == 0 &&
                          !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
                     continue;                // loop on failed CAS
             }
+            //执行完一次操作后，如果head发生变化了，继续操作
             if (h == head)                   // loop if head changed
                 break;
         }
@@ -711,6 +726,7 @@ public abstract class AbstractQueuedSynchronizer
      * @param node the node
      * @param propagate the return value from a tryAcquireShared
      */
+    //共享模式下，设置头也是无并发的，判断这个地方有无并发
     private void setHeadAndPropagate(Node node, int propagate) {
         Node h = head; // Record old head for check below
         setHead(node);
@@ -733,6 +749,9 @@ public abstract class AbstractQueuedSynchronizer
         if (propagate > 0 || h == null || h.waitStatus < 0 ||
             (h = head) == null || h.waitStatus < 0) {
             Node s = node.next;
+            //说明还有剩余资源，可以继续唤醒，但是唤醒的必须是共享节点
+            // h==null s==null 都是尝试
+            //waitStatus<0 在共享节点看来，其实是两种状态：Signal和Propagate
             if (s == null || s.isShared())
                 doReleaseShared();
         }
@@ -754,6 +773,7 @@ public abstract class AbstractQueuedSynchronizer
 
         // Skip cancelled predecessors
         Node pred = node.prev;
+        //cancelled状态的节点全部删除，并释放资源
         while (pred.waitStatus > 0)
             node.prev = pred = pred.prev;
 
@@ -778,10 +798,15 @@ public abstract class AbstractQueuedSynchronizer
                 ((ws = pred.waitStatus) == Node.SIGNAL ||
                  (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))) &&
                 pred.thread != null) {
+                //pred不为head， ws修改为signal
                 Node next = node.next;
+                //next没有被取消，则设置新的next
+                //如果next被取消了呢？什么也不做，当前节点也就没有被删除
                 if (next != null && next.waitStatus <= 0)
                     compareAndSetNext(pred, predNext, next);
             } else {
+                //为什么要唤醒后继节点，假定到这里pred肯定是head
+                //那么pred!=head && ws==cancel(难道因为上面判断过ws!=cancel)，其实唤醒也没有关系
                 unparkSuccessor(node);
             }
 
